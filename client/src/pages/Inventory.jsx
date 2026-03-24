@@ -17,6 +17,7 @@ const Inventory = () => {
   const { addToast } = useToast();
   
   const [categories, setCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [filters, setFilters] = useState({ search: '', category: '', status: '' });
   const [sortConfig, setSortConfig] = useState({ key: 'updatedAt', direction: 'desc' });
   const [page, setPage] = useState(1);
@@ -24,7 +25,23 @@ const Inventory = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
 
-  const loadData = useCallback(() => {
+  // Load categories once on mount
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const res = await client.get('/categories');
+        setCategories(res.data);
+      } catch (err) {
+        console.error('Failed to load categories:', err);
+      } finally {
+        setCategoriesLoading(false);
+      }
+    };
+    loadCategories();
+  }, []);
+
+  // Fetch items when filters, sort, or page changes
+  useEffect(() => {
     fetchItems({
       search: filters.search,
       category: filters.category,
@@ -36,13 +53,18 @@ const Inventory = () => {
     });
   }, [filters, sortConfig, page, fetchItems]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  useEffect(() => {
-    client.get('/categories').then(res => setCategories(res.data)).catch(console.error);
-  }, []);
+  // Function to reload data after mutations
+  const reloadData = useCallback(() => {
+    fetchItems({
+      search: filters.search,
+      category: filters.category,
+      status: filters.status,
+      sortBy: sortConfig.key,
+      order: sortConfig.direction,
+      page: 1,
+      limit: 15
+    });
+  }, [filters, sortConfig, fetchItems]);
 
   const handleSearch = (term) => {
     setFilters(prev => ({ ...prev, search: term }));
@@ -61,7 +83,8 @@ const Inventory = () => {
       try {
         await client.delete(`/items/${id}`);
         addToast('Item sent to trash');
-        loadData();
+        setPage(1);
+        reloadData();
       } catch (err) {
         addToast('Failed to delete item', 'error');
       }
@@ -185,7 +208,7 @@ const Inventory = () => {
         <ItemForm 
           initialData={editingItem} 
           categories={categories}
-          onSuccess={() => { setIsModalOpen(false); loadData(); }}
+          onSuccess={() => { setIsModalOpen(false); setPage(1); reloadData(); }}
           onCancel={() => setIsModalOpen(false)}
         />
       </Modal>
