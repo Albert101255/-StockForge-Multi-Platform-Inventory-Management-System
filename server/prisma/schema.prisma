@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  password  String    // bcrypt hashed
+  name      String
+  role      String    @default("STAFF")
+  createdAt DateTime  @default(now())
+  items     Item[]
+}
+
+model Category {
+  id        Int     @id @default(autoincrement())
+  name      String  @unique   // e.g. "PS5 Games", "Merch"
+  iconSlug  String            // maps to Krita SVG file name
+  items     Item[]
+}
+
+model Item {
+  id            Int       @id @default(autoincrement())
+  sku           String    @unique
+  name          String
+  description   String?
+  quantity      Int       @default(0)
+  lowStockAt    Int       @default(5)   // alert threshold
+  price         Float
+  costPrice     Float
+  supplier      String?
+  categoryId    Int
+  category      Category  @relation(fields: [categoryId], references: [id])
+  isDeleted     Boolean   @default(false)  // soft delete
+  createdById   Int
+  createdBy     User      @relation(fields: [createdById], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  history       StockLog[]
+}
+
+model StockLog {
+  id        Int      @id @default(autoincrement())
+  itemId    Int
+  item      Item     @relation(fields: [itemId], references: [id])
+  delta     Int      // +10 = restocked 10 units, -3 = sold/removed 3
+  reason    String?  // "Manual adjustment", "Restock", "Sale"
+  timestamp DateTime @default(now())
+}
