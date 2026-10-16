@@ -56,6 +56,7 @@ cd server
 npm install
 npm run db:push
 npm run db:seed
+npm test
 npm run dev
 ```
 
@@ -69,19 +70,17 @@ npm run dev
 
 Open the frontend at the URL printed by Vite.
 
+### Docker Compose
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
 ## Security
 
-Seeded accounts are for local demonstration only. Do not reuse seeded passwords in an internet-facing deployment. Production deployments should use generated secrets and proper environment-variable management.
+Seeded accounts are for local demonstration only. Do not reuse seeded passwords in an internet-facing deployment. Production deployments require `JWT_SECRET` to be configured via environment variables.
 
-## Project status
+## License
 
-This is a portfolio/learning project. Features described as future work should not be treated as completed until they are present in the repository and tested.
-
-## Next improvements
-
-- Add screenshots/demo GIF
-- Add automated tests
-- Add CI
-- Add a deployable demo
-- Add API documentation generated from the implementation
-- Rename the repository from `-StockForge-Multi-Platform-Inventory-Management-System` to `stockforge`
+MIT License — see [LICENSE](LICENSE).

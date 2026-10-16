@@ -21,6 +21,7 @@ yarn-error.log*
 *.sublime-project
 
 # Build outputs
+dist/
 client/dist/
 server/dist/
 build/
@@ -29,6 +30,7 @@ build/
 # Database
 *.sqlite
 *.db
+*.db-journal
 dev.db
 
 # Prisma

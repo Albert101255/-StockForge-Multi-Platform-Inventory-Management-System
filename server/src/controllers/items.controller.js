@@ -83,78 +83,154 @@ const getItemById = async (req, res, next) => {
 const createItem = async (req, res, next) => {
   try {
     const { sku, name, description, quantity, lowStockAt, price, costPrice, supplier, categoryId } = req.body;
-    
-    // Validate SKU uniqueness
-    const existingSku = await prisma.item.findUnique({ where: { sku } });
-    if (existingSku) return res.status(400).json({ message: 'SKU already exists' });
 
-    const item = await prisma.item.create({
-      data: {
-        sku, name, description, 
-        quantity: parseInt(quantity) || 0, 
-        lowStockAt: parseInt(lowStockAt) || 5, 
-        price: parseFloat(price), 
-        costPrice: parseFloat(costPrice) || 0,
-        supplier, 
-        categoryId: parseInt(categoryId),
-        createdById: req.user.userId,
-        history: {
-          create: {
-            delta: parseInt(quantity) || 0,
-            reason: 'Initial Restock'
-          }
-        }
+    if (!sku || !name || price === undefined || categoryId === undefined) {
+      return res.status(400).json({ message: 'sku, name, price, and categoryId are required' });
+    }
+
+    const parsedQty = quantity !== undefined && quantity !== '' ? parseInt(quantity, 10) : 0;
+    const parsedLowStock = lowStockAt !== undefined && lowStockAt !== '' ? parseInt(lowStockAt, 10) : 5;
+    const parsedPrice = parseFloat(price);
+    const parsedCostPrice = costPrice !== undefined && costPrice !== '' ? parseFloat(costPrice) : 0;
+    const parsedCategoryId = parseInt(categoryId, 10);
+
+    const item = await prisma.$transaction(async (tx) => {
+      const existingSku = await tx.item.findUnique({ where: { sku } });
+      if (existingSku) {
+        const err = new Error('SKU already exists');
+        err.statusCode = 400;
+        throw err;
       }
+
+      const created = await tx.item.create({
+        data: {
+          sku,
+          name,
+          description,
+          quantity: Number.isNaN(parsedQty) ? 0 : parsedQty,
+          lowStockAt: Number.isNaN(parsedLowStock) ? 5 : parsedLowStock,
+          price: parsedPrice,
+          costPrice: Number.isNaN(parsedCostPrice) ? 0 : parsedCostPrice,
+          supplier,
+          categoryId: parsedCategoryId,
+          createdById: req.user.userId,
+        }
+      });
+
+      await tx.stockLog.create({
+        data: {
+          itemId: created.id,
+          delta: Number.isNaN(parsedQty) ? 0 : parsedQty,
+          reason: 'Initial Restock'
+        }
+      });
+
+      return tx.item.findUnique({
+        where: { id: created.id },
+        include: { category: true, history: { orderBy: { timestamp: 'desc' } } }
+      });
     });
 
     res.status(201).json(item);
   } catch (err) {
+    if (err.statusCode === 400) {
+      return res.status(400).json({ message: err.message });
+    }
     next(err);
   }
 };
 
 const updateItem = async (req, res, next) => {
   try {
-    const id = parseInt(req.params.id);
-    const { sku, name, description, quantity, lowStockAt, price, costPrice, supplier, categoryId, reason } = req.body;
+    const id = parseInt(req.params.id, 10);
+    const { sku, name, description, quantity, delta, lowStockAt, price, costPrice, supplier, categoryId, reason } = req.body;
 
-    const currentItem = await prisma.item.findUnique({ where: { id } });
-    if (!currentItem) return res.status(404).json({ message: 'Item not found' });
+    const updatedItem = await prisma.$transaction(async (tx) => {
+      const currentItem = await tx.item.findUnique({ where: { id } });
+      if (!currentItem) {
+        const err = new Error('Item not found');
+        err.statusCode = 404;
+        throw err;
+      }
 
-    const data = {
-      sku, name, description, 
-      lowStockAt: parseInt(lowStockAt) || 5, 
-      price: parseFloat(price), 
-      costPrice: parseFloat(costPrice) || 0,
-      supplier, 
-      categoryId: parseInt(categoryId)
-    };
-
-    let newQuantity = parseInt(quantity);
-    if (!isNaN(newQuantity) && newQuantity !== currentItem.quantity) {
-      data.quantity = newQuantity;
-      data.history = {
-        create: {
-          delta: newQuantity - currentItem.quantity,
-          reason: reason || 'Manual adjustment'
+      if (sku && sku !== currentItem.sku) {
+        const existingSku = await tx.item.findUnique({ where: { sku } });
+        if (existingSku) {
+          const err = new Error('SKU already exists');
+          err.statusCode = 400;
+          throw err;
         }
-      };
-    }
+      }
 
-    const updatedItem = await prisma.item.update({
-      where: { id },
-      data
+      const data = {};
+      if (sku !== undefined) data.sku = sku;
+      if (name !== undefined) data.name = name;
+      if (description !== undefined) data.description = description;
+      if (lowStockAt !== undefined && lowStockAt !== '') data.lowStockAt = parseInt(lowStockAt, 10);
+      if (price !== undefined && price !== '') data.price = parseFloat(price);
+      if (costPrice !== undefined && costPrice !== '') data.costPrice = parseFloat(costPrice);
+      if (supplier !== undefined) data.supplier = supplier;
+      if (categoryId !== undefined && categoryId !== '') data.categoryId = parseInt(categoryId, 10);
+
+      let computedDelta = 0;
+      if (delta !== undefined && !Number.isNaN(parseInt(delta, 10))) {
+        computedDelta = parseInt(delta, 10);
+        const targetQuantity = currentItem.quantity + computedDelta;
+        if (targetQuantity < 0) {
+          const err = new Error('Stock quantity cannot be negative');
+          err.statusCode = 400;
+          throw err;
+        }
+        data.quantity = targetQuantity;
+      } else if (quantity !== undefined && !Number.isNaN(parseInt(quantity, 10))) {
+        const newQuantity = parseInt(quantity, 10);
+        if (newQuantity < 0) {
+          const err = new Error('Stock quantity cannot be negative');
+          err.statusCode = 400;
+          throw err;
+        }
+        if (newQuantity !== currentItem.quantity) {
+          computedDelta = newQuantity - currentItem.quantity;
+          data.quantity = newQuantity;
+        }
+      }
+
+      await tx.item.update({
+        where: { id },
+        data
+      });
+
+      if (computedDelta !== 0) {
+        await tx.stockLog.create({
+          data: {
+            itemId: id,
+            delta: computedDelta,
+            reason: reason || 'Manual adjustment'
+          }
+        });
+      }
+
+      return tx.item.findUnique({
+        where: { id },
+        include: { category: true, history: { orderBy: { timestamp: 'desc' } } }
+      });
     });
 
     res.json(updatedItem);
   } catch (err) {
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ message: err.message });
+    }
     next(err);
   }
 };
 
 const deleteItem = async (req, res, next) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
+    const existing = await prisma.item.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ message: 'Item not found' });
+
     await prisma.item.update({
       where: { id },
       data: { isDeleted: true }
@@ -179,7 +255,10 @@ const getTrash = async (req, res, next) => {
 
 const restoreItem = async (req, res, next) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id, 10);
+    const existing = await prisma.item.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ message: 'Item not found' });
+
     await prisma.item.update({
       where: { id },
       data: { isDeleted: false }

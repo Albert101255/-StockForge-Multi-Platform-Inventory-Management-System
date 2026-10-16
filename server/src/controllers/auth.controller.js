@@ -1,10 +1,15 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/db.js');
+const { getJwtSecret, getJwtExpiresIn } = require('../config/jwt.js');
 
 const register = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email, and password are required' });
+    }
 
     // Check existing user
     const existingUser = await prisma.user.findUnique({ where: { email } });
@@ -24,8 +29,8 @@ const register = async (req, res, next) => {
 
     const token = jwt.sign(
       { userId: user.id, role: user.role },
-      process.env.JWT_SECRET || 'stockforge-256-bit-secret',
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      getJwtSecret(),
+      { expiresIn: getJwtExpiresIn() }
     );
 
     res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
@@ -37,6 +42,10 @@ const register = async (req, res, next) => {
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
@@ -50,8 +59,8 @@ const login = async (req, res, next) => {
 
     const token = jwt.sign(
       { userId: user.id, role: user.role },
-      process.env.JWT_SECRET || 'stockforge-256-bit-secret',
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      getJwtSecret(),
+      { expiresIn: getJwtExpiresIn() }
     );
 
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
