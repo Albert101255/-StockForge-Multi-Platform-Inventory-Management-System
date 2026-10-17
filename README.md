@@ -1,3 +1,5 @@
+> **Live Interactive Web Application:** [https://albert101255.github.io/-StockForge-Multi-Platform-Inventory-Management-System/](https://albert101255.github.io/-StockForge-Multi-Platform-Inventory-Management-System/)
+
 # StockForge — Inventory Management System
 
 A full-stack inventory management application built with React, Express and Prisma. It focuses on everyday stock operations, role-based access, audit history and dashboard reporting.
